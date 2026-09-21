@@ -1,0 +1,8 @@
+/build/
+/release/
+*.dll
+*.exe
+*.pdb
+*.scdemod
+*.log
+.vs/

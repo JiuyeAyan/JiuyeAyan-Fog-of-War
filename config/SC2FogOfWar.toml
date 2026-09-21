@@ -1,0 +1,55 @@
+# SC2 风格战争迷雾配置
+# 仅供开发者构建使用：修改后必须重新打包 Mod，并更新版本号。
+# 发布 DLL 内嵌本文件，游戏不生成或读取外部 TOML。
+
+[general]
+# 是否启用战争迷雾。可选值：true / false
+enabled = true
+
+[colors]
+# 未探索区域颜色，格式为 #RRGGBBAA。
+# 最后两位 AA 是透明度：00 完全透明，FF 完全不透明。
+unexplored = "#050810F2"
+
+# 已探索、但当前没有视野的区域颜色。
+explored = "#17202B9E"
+
+[vision]
+# 友军单位视野半径，单位为地图格。
+unit_radius = 56.0
+
+# 友军建筑视野半径，单位为地图格。
+# 领主的固定基地视野使用下方 [lord_base_vision] 的独立设置。
+building_radius = 56.0
+
+# 迷雾边缘柔化宽度，单位为地图格。
+soft_edge = 4.0
+
+# 迷雾刷新间隔，单位为秒。建议保持 0.12。
+update_interval = 0.12
+
+[tower_vision]
+# 未驻军塔楼的视野半径。城墙本身不提供视野。
+wall_radius = 5.0
+
+# 以下五项对应游戏内部 STRUCT_TOWER1 到 STRUCT_TOWER5。
+# 只有原生格子数据确认友军单位正站在该塔楼上时，才启用对应数值。
+tower1_radius = 65.0
+tower2_radius = 57.0
+tower3_radius = 58.0
+tower4_radius = 60.0
+tower5_radius = 60.0
+
+[civilian_vision]
+# 平民视野半径：适用于未转职及有职业农民等非战斗平民。
+# 伐木工、猎人使用兵种视野；小鸡固定不提供视野。
+radius = 10.0
+
+[lord_base_vision]
+# 本局第一次读取到的领主位置会固定为基地视野中心，之后不再移动。
+# 固定基地视野半径，单位为地图格；可选范围 1.0 到 400.0。
+radius = 85.0
+
+[minimap]
+# 小地图迷雾每秒更新次数。3.33 约等于每 0.3 秒一次；可选范围 1.0 到 30.0。
+fog_updates_per_second = 3.33

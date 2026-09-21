@@ -1,0 +1,7 @@
+This plugin requires BepInEx 5.4.23.5 and Harmony, supplied separately by the bepinex-runtime Mod.
+
+BepInEx: https://github.com/BepInEx/BepInEx
+License: LGPL-2.1
+
+Harmony: https://github.com/pardeike/Harmony
+License: MIT
