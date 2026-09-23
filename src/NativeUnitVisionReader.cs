@@ -33,10 +33,14 @@ namespace SCDEFogOfWar
         private const int UnitFineYOffset = 0x710;
         private const int UnitCellXOffset = 0x71c;
         private const int UnitCellYOffset = 0x71e;
-        private const int UnitOwnerOffset = 0xa28;
+        // GameUnitManager + 0x65c + id * 0x490 + GameUnit.r_ControllableForPlayerId (0x92).
+        // 0xa28 points at GameUnit + 0x3cc, which is not ownership.
+        private const int UnitOwnerOffset = 0x6ee;
         private const long UnitManagerRva = 0x67e8400;
+        private const long BuildingManagerRva = 0x64ccbb0;
 
         private IntPtr _unitManager;
+        private IntPtr _buildingManager;
         private bool _initialized;
         private bool _permanentlyUnavailable;
 
@@ -96,6 +100,24 @@ namespace SCDEFogOfWar
             }
         }
 
+        internal bool TryReadBuildings(List<NativeVisionBuilding> output)
+        {
+            output.Clear();
+            if (!TryInitialize()) return false;
+            try
+            {
+                NativeBuildingVisionReader.ReadActive(_buildingManager, output);
+                FailureReason = null;
+                return true;
+            }
+            catch (Exception error)
+            {
+                output.Clear();
+                FailureReason = "native building table read failed: " + error.GetType().Name;
+                return false;
+            }
+        }
+
         private bool TryInitialize()
         {
             if (_initialized)
@@ -142,6 +164,7 @@ namespace SCDEFogOfWar
                     return false;
                 }
                 _unitManager = Add(found.BaseAddress, UnitManagerRva);
+                _buildingManager = Add(found.BaseAddress, BuildingManagerRva);
                 _initialized = true;
                 FailureReason = null;
                 return true;
