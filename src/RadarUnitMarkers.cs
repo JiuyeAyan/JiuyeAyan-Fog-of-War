@@ -47,7 +47,7 @@ namespace SCDEFogOfWar
             _size = 0;
         }
 
-        internal void Add(float x, float y, bool friendly, bool currentlyVisible)
+        internal void Add(float x, float y, bool friendly, bool currentlyVisible, bool selected = false)
         {
             if (_mask == null || !(x >= 0 && x <= 1 && y >= 0 && y <= 1) ||
                 (!friendly && !currentlyVisible)) return;
@@ -62,7 +62,7 @@ namespace SCDEFogOfWar
                     int col = cx + dx;
                     if (col < 0 || col >= _size) continue;
                     bool fill = Math.Abs(dx) <= 1 && Math.Abs(dy) <= 1;
-                    _mask[row * _size + col] |= (byte)(friendly ? (fill ? 4 : 1) : (fill ? 8 : 2));
+                    _mask[row * _size + col] |= (byte)(friendly ? (fill ? (selected ? 16 : 4) : 1) : (fill ? 8 : 2));
                 }
             }
         }
@@ -89,15 +89,17 @@ namespace SCDEFogOfWar
                         if (fog < 0 || fog >= visible.Length) continue;
                         // An enemy centre AND each painted fragment need current
                         // vision. Explored history must never reveal enemy motion.
-                        int allowed = visible[fog] >= threshold ? flags : flags & 5;
+                        int allowed = visible[fog] >= threshold ? flags : flags & 21;
                         if (allowed == 0) continue;
                         int offset = pixel * 4;
+                        bool selectedFill = (allowed & 16) != 0;
                         bool enemyFill = (allowed & 8) != 0;
                         bool friendFill = !enemyFill && (allowed & 4) != 0;
-                        // Bright blue #32C8FF, red #FF3030, opaque black outline.
-                        bgra[offset] = (byte)(enemyFill ? 48 : friendFill ? 255 : 0);
-                        bgra[offset + 1] = (byte)(enemyFill ? 48 : friendFill ? 200 : 0);
-                        bgra[offset + 2] = (byte)(enemyFill ? 255 : friendFill ? 50 : 0);
+                        // Selected white wins overlaps; otherwise bright blue
+                        // #32C8FF, red #FF3030, opaque black outline.
+                        bgra[offset] = (byte)(selectedFill ? 255 : enemyFill ? 48 : friendFill ? 255 : 0);
+                        bgra[offset + 1] = (byte)(selectedFill ? 255 : enemyFill ? 48 : friendFill ? 200 : 0);
+                        bgra[offset + 2] = (byte)(selectedFill ? 255 : enemyFill ? 255 : friendFill ? 50 : 0);
                         bgra[offset + 3] = 255;
                     }
                 }

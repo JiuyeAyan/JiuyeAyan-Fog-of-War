@@ -15,7 +15,7 @@ namespace SCDEFogOfWar
     {
         public const string PluginGuid = "scde.sc2-fog-of-war";
         public const string PluginName = "JiuyeAyan's Fog of War";
-        public const string PluginVersion = "0.2.52";
+        public const string PluginVersion = "0.2.55";
 
         private const string DefaultUnexplored = "#050810F2";
         private const string DefaultExplored = "#17202B9E";
@@ -172,6 +172,7 @@ namespace SCDEFogOfWar
         private int _radarMappingRotation = -1;
         private RadarMarkerProjection _radarMarkerProjection;
         private readonly RadarUnitMarkers _radarUnitMarkers = new RadarUnitMarkers();
+        private readonly HashSet<int> _radarSelectedUnitIds = new HashSet<int>();
         private readonly byte[][] _radarFilterBuffers = new byte[2][];
         private int _nextRadarFilterBuffer;
         private byte[] _radarSourceMap;
@@ -220,6 +221,9 @@ namespace SCDEFogOfWar
             new List<NativeVisionUnit>();
         private bool _loggedNativeUnitVision;
         private bool _loggedNativeUnitVisionFallback;
+        private readonly List<NativeVisionBuilding> _nativeVisionBuildings =
+            new List<NativeVisionBuilding>();
+        private bool _loggedNativeBuildingFallback;
         private readonly HashSet<int> _friendlyStructureIds = new HashSet<int>();
         private readonly Dictionary<int, int> _friendlyStructureOwners =
             new Dictionary<int, int>();
@@ -1580,6 +1584,18 @@ namespace SCDEFogOfWar
                 return;
             }
             _nextStructureScan = Time.unscaledTime + 0.75f;
+            if (_nativeUnitVisionReader.TryReadBuildings(_nativeVisionBuildings))
+            {
+                _nextStructureScan = Time.unscaledTime + 1f;
+                ReconcileNativeBuildings();
+                return;
+            }
+            if (!_loggedNativeBuildingFallback)
+            {
+                _loggedNativeBuildingFallback = true;
+                Logger.LogWarning("Native building reconciliation unavailable; using placement/base fallback: " +
+                    _nativeUnitVisionReader.FailureReason);
+            }
             ClaimPendingPlacements();
             if (EngineInterface.FlattenedLandscape)
             {
@@ -1598,6 +1614,45 @@ namespace SCDEFogOfWar
                     _towerSources.Count, _activePlayer, _visionPlayerIds.Count,
                     _friendlyStructureIds.Count, baseStructureMatches));
             }
+        }
+
+        private void ReconcileNativeBuildings()
+        {
+            // Authoritative live snapshot, not a spawn-only cache: covers Script Extender
+            // CreatePrefab, loaded maps, deletions, ownership changes and reused slots.
+            _friendlyStructureIds.Clear();
+            _friendlyStructureOwners.Clear();
+            _friendlyStructurePositions.Clear();
+            _friendlyTowerTypes.Clear();
+            _structureSources.Clear();
+            _towerSources.Clear();
+            _pendingPlacements.Clear();
+            HashSet<int> buckets = new HashSet<int>();
+            foreach (NativeVisionBuilding building in _nativeVisionBuildings)
+            {
+                int type = building.Type;
+                if (!IsVisionPlayer(building.Owner) || type == 90 ||
+                    (type >= 110 && type <= 117) || IsDestroyedTowerType(type) ||
+                    !IsLogicCoordinateOnMap(building.LogicX, building.LogicY)) continue;
+                int tileX;
+                int tileY;
+                _activeMap.mapGameTileToTilemapCoord(
+                    building.LogicX, building.LogicY, out tileX, out tileY);
+                if (tileX < 0 || tileY < 0 || tileX >= _activeTiles.GetLength(0) ||
+                    tileY >= _activeTiles.GetLength(1)) continue;
+                RememberFriendlyStructure(building.Id, building.Owner, tileX, tileY);
+                if (IsTowerType(type))
+                {
+                    _friendlyTowerTypes[building.Id] = type;
+                    _towerSources.Add(new TowerVisionSource
+                    {
+                        StructureId = building.Id, Type = type, TileX = tileX, TileY = tileY
+                    });
+                }
+                else AddStructureSource(tileX, tileY, buckets, _structureSources);
+            }
+            _occupiedFriendlyTowerIds.Clear();
+            _nextTowerOccupancyScan = 0f;
         }
 
         private void SeedFriendlyStructuresNearBases(
@@ -2921,6 +2976,14 @@ namespace SCDEFogOfWar
         {
             int displaySize = FatControler.instance == null ? 124 : FatControler.instance.SHRadarRectSize;
             _radarUnitMarkers.Begin(displaySize > 1 ? displaySize : 124);
+            _radarSelectedUnitIds.Clear();
+            EngineInterface.PlayState state = GameData.Instance == null ? null : GameData.Instance.lastGameState;
+            if (state != null && state.selectedChimps != null)
+            {
+                int count = Math.Min(state.numSelectedChimps, state.selectedChimps.Length);
+                for (int i = 0; i < count; i++)
+                    if (state.selectedChimps[i] > 0) _radarSelectedUnitIds.Add(state.selectedChimps[i]);
+            }
             // Reuse the authoritative full-map snapshot gathered for vision, not
             // camera-local sprites or native radar colours. No new native scan.
             foreach (NativeVisionUnit unit in _nativeVisionUnits)
@@ -2932,7 +2995,8 @@ namespace SCDEFogOfWar
                 float x, y;
                 if (!_radarMarkerProjection.TryProject(unit.LogicX, unit.LogicY, out x, out y)) continue;
                 _radarUnitMarkers.Add(x, y, IsVisionPlayer(unit.Owner),
-                    _visible[fogIndex] >= VisibleThreshold);
+                    _visible[fogIndex] >= VisibleThreshold,
+                    unit.Owner == _activePlayer && _radarSelectedUnitIds.Contains(unit.Id));
             }
             _radarUnitMarkers.Paint(filtered, width, height, _radarFogIndices, _visible, VisibleThreshold);
         }
@@ -3258,6 +3322,8 @@ namespace SCDEFogOfWar
             _nativeVisionUnits.Clear();
             _loggedNativeUnitVision = false;
             _loggedNativeUnitVisionFallback = false;
+            _nativeVisionBuildings.Clear();
+            _loggedNativeBuildingFallback = false;
             _friendlyStructureIds.Clear();
             _friendlyStructureOwners.Clear();
             _friendlyStructurePositions.Clear();
@@ -3283,6 +3349,7 @@ namespace SCDEFogOfWar
             _radarMappingRotation = -1;
             _radarFilterBuffers[0] = null;
             _radarUnitMarkers.Clear();
+            _radarSelectedUnitIds.Clear();
             _radarMarkerProjection = new RadarMarkerProjection();
             _radarFilterBuffers[1] = null;
             _radarOutputGeneration = 0;
