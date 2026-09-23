@@ -15,7 +15,7 @@ namespace SCDEFogOfWar
     {
         public const string PluginGuid = "scde.sc2-fog-of-war";
         public const string PluginName = "JiuyeAyan's Fog of War";
-        public const string PluginVersion = "0.2.52";
+        public const string PluginVersion = "0.2.53";
 
         private const string DefaultUnexplored = "#050810F2";
         private const string DefaultExplored = "#17202B9E";
@@ -220,6 +220,9 @@ namespace SCDEFogOfWar
             new List<NativeVisionUnit>();
         private bool _loggedNativeUnitVision;
         private bool _loggedNativeUnitVisionFallback;
+        private readonly List<NativeVisionBuilding> _nativeVisionBuildings =
+            new List<NativeVisionBuilding>();
+        private bool _loggedNativeBuildingFallback;
         private readonly HashSet<int> _friendlyStructureIds = new HashSet<int>();
         private readonly Dictionary<int, int> _friendlyStructureOwners =
             new Dictionary<int, int>();
@@ -1580,6 +1583,18 @@ namespace SCDEFogOfWar
                 return;
             }
             _nextStructureScan = Time.unscaledTime + 0.75f;
+            if (_nativeUnitVisionReader.TryReadBuildings(_nativeVisionBuildings))
+            {
+                _nextStructureScan = Time.unscaledTime + 5f;
+                ReconcileNativeBuildings();
+                return;
+            }
+            if (!_loggedNativeBuildingFallback)
+            {
+                _loggedNativeBuildingFallback = true;
+                Logger.LogWarning("Native building reconciliation unavailable; using placement/base fallback: " +
+                    _nativeUnitVisionReader.FailureReason);
+            }
             ClaimPendingPlacements();
             if (EngineInterface.FlattenedLandscape)
             {
@@ -1598,6 +1613,45 @@ namespace SCDEFogOfWar
                     _towerSources.Count, _activePlayer, _visionPlayerIds.Count,
                     _friendlyStructureIds.Count, baseStructureMatches));
             }
+        }
+
+        private void ReconcileNativeBuildings()
+        {
+            // Authoritative live snapshot, not a spawn-only cache: covers Script Extender
+            // CreatePrefab, loaded maps, deletions, ownership changes and reused slots.
+            _friendlyStructureIds.Clear();
+            _friendlyStructureOwners.Clear();
+            _friendlyStructurePositions.Clear();
+            _friendlyTowerTypes.Clear();
+            _structureSources.Clear();
+            _towerSources.Clear();
+            _pendingPlacements.Clear();
+            HashSet<int> buckets = new HashSet<int>();
+            foreach (NativeVisionBuilding building in _nativeVisionBuildings)
+            {
+                int type = building.Type;
+                if (!IsVisionPlayer(building.Owner) || type == 90 ||
+                    (type >= 110 && type <= 117) || IsDestroyedTowerType(type) ||
+                    !IsLogicCoordinateOnMap(building.LogicX, building.LogicY)) continue;
+                int tileX;
+                int tileY;
+                _activeMap.mapGameTileToTilemapCoord(
+                    building.LogicX, building.LogicY, out tileX, out tileY);
+                if (tileX < 0 || tileY < 0 || tileX >= _activeTiles.GetLength(0) ||
+                    tileY >= _activeTiles.GetLength(1)) continue;
+                RememberFriendlyStructure(building.Id, building.Owner, tileX, tileY);
+                if (IsTowerType(type))
+                {
+                    _friendlyTowerTypes[building.Id] = type;
+                    _towerSources.Add(new TowerVisionSource
+                    {
+                        StructureId = building.Id, Type = type, TileX = tileX, TileY = tileY
+                    });
+                }
+                else AddStructureSource(tileX, tileY, buckets, _structureSources);
+            }
+            _occupiedFriendlyTowerIds.Clear();
+            _nextTowerOccupancyScan = 0f;
         }
 
         private void SeedFriendlyStructuresNearBases(
@@ -3258,6 +3312,8 @@ namespace SCDEFogOfWar
             _nativeVisionUnits.Clear();
             _loggedNativeUnitVision = false;
             _loggedNativeUnitVisionFallback = false;
+            _nativeVisionBuildings.Clear();
+            _loggedNativeBuildingFallback = false;
             _friendlyStructureIds.Clear();
             _friendlyStructureOwners.Clear();
             _friendlyStructurePositions.Clear();
